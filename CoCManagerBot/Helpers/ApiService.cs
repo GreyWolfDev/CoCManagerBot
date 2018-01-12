@@ -11,7 +11,7 @@ namespace CoCManagerBot.Helpers
 {
     internal static class ApiService
     {
-        internal static string CoCToken = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiIsImtpZCI6IjI4YTMxOGY3LTAwMDAtYTFlYi03ZmExLTJjNzQzM2M2Y2NhNSJ9.eyJpc3MiOiJzdXBlcmNlbGwiLCJhdWQiOiJzdXBlcmNlbGw6Z2FtZWFwaSIsImp0aSI6IjA4MWNlYjE2LTViMjEtNDQ1Mi04MjcyLTA5NDNiOTcyMDBkMiIsImlhdCI6MTUwOTA1MDU2MCwic3ViIjoiZGV2ZWxvcGVyLzAzMmYzNDljLTgxYjQtZmExYy0xMGE4LTQwZmZkNDIzZDFiMCIsInNjb3BlcyI6WyJjbGFzaCJdLCJsaW1pdHMiOlt7InRpZXIiOiJkZXZlbG9wZXIvc2lsdmVyIiwidHlwZSI6InRocm90dGxpbmcifSx7ImNpZHJzIjpbIjY2LjE2OS4xNzYuMzAiLCIxNjguNjEuNDAuMTk1IiwiMTYyLjcxLjI0MS4xOCJdLCJ0eXBlIjoiY2xpZW50In1dfQ.TA-LBoLSpnBA9-Kxtv3Akq3lgn1M_JIfACv5Nx2Kg1qgIyJCnEU45QPrpmGaAPu3P8dVC-csaxsxrxGRp87s-g";
+        internal static string CoCToken = RegHelper.GetRegValue("CoCAPIKey");
         public static async Task<string> GetJsonAsync(string url)
         {
             var client = new HttpClient();

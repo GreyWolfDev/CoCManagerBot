@@ -20,7 +20,7 @@ namespace CoCManagerBot
 {
     class Program
     {
-        internal static string TGToken = Properties.Settings.Default.TelegramAPIKey;
+        internal static string TGToken = RegHelper.GetRegValue("TelegramBotToken");
         internal static TelegramBotClient Bot;
         internal static LiteDatabase DB;
         internal static User Me;
