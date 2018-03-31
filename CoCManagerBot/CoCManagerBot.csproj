@@ -60,11 +60,14 @@
     <Compile Include="Helpers\Admin.cs" />
     <Compile Include="Helpers\ApiService.cs" />
     <Compile Include="Helpers\Converters.cs" />
+    <Compile Include="Helpers\RegHelper.cs" />
     <Compile Include="Helpers\UrlConstants.cs" />
     <Compile Include="Model\ClanResponse.cs" />
+    <Compile Include="Model\MemberListResponse.cs" />
     <Compile Include="Model\Player.cs" />
     <Compile Include="Model\PlayerResponse.cs" />
     <Compile Include="Model\WarLogResponse.cs" />
+    <Compile Include="Model\WarRank.cs" />
     <Compile Include="Model\WarResponse.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />

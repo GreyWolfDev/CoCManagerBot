@@ -34,6 +34,8 @@ namespace CoCManagerBot.Model
         public Hero[] heroes { get; set; }
         public Spell[] spells { get; set; }
         public string reason { get; set; }
+
+        public double WarRating { get; set; }
     }
 
     public class Achievement
