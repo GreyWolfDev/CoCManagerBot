@@ -11,5 +11,6 @@ namespace CoCManagerBot.Model
         public string Name { get; set; }
         public int Id { get; set; }
         public double Rank { get; set; }
+        public int WarCount { get; set; }
     }
 }

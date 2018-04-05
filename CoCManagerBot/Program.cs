@@ -15,6 +15,7 @@ using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
 using Telegram.Bot.Types.ReplyMarkups;
+using System.IO;
 
 namespace CoCManagerBot
 {
@@ -327,6 +328,10 @@ namespace CoCManagerBot
                                 replyToMessageId: e.Message.MessageId);
                             break;
                         #endregion
+                        case "donate":
+                            Send(e.Message.From.Id, "Has this bot helped you and your clan?  Consider dropping me a donation to continue development:\n" +
+                                "https://www.paypal.me/GreyWolfDevelopment");
+                            break;
                         case "recheck":
                             user = DB.GetCollection<Player>("player")
                                 .FindOne(x => x.TelegramId == e.Message.From.Id);
@@ -504,13 +509,148 @@ namespace CoCManagerBot
                                     "Please use /setid to set your user id.  Use the #AAAAAAAAA tag from Clash of Clans.");
                                 return;
                             }
-                            var players = CalculateWarRanks(user.ClanId).OrderByDescending(x => x.Rank);
-                            Send(e.Message.From.Id, players.Aggregate("", (a, v) => a + "\n" + $"{v.Name}: {v.Rank:N2}"), ParseMode.Html);
+                            var players = CalculateWarRanks(user.ClanId)?.OrderByDescending(x => x.Rank);
+                            if (players == null)
+                            {
+                                Send(e.Message.From.Id, "Either you are not in a clan, or your clan does not have any wars logged with me.  The Clash of Clans API won't let me get old war results (player performance), so you'll need to start a war and finish it before I can give you rankings for your clan.");
+                            }
+                            else
+                            {
+                                Send(e.Message.From.Id, players.Aggregate("", (a, v) => a + "\n" + $"{v.Name}: {v.Rank:N2} ({v.WarCount} wars)"), ParseMode.Html);
+                            }
+
+                            break;
+                        case "warlog":
+                            if (user == null)
+                            {
+                                Send(e.Message.From.Id,
+                                    "Please use /setid to set your user id.  Use the #AAAAAAAAA tag from Clash of Clans.");
+                                return;
+                            }
+                            //update the user information, in case they switch clans or whatever.
+                            p = ApiService.Get<PlayerResponse>(UrlConstants.GetPlayerInformationTemplate, user.CoCId)
+                                .Result;
+                            if (p.clan.tag != user.ClanId)
+                            {
+                                user.ClanId = p.clan.tag;
+                                DB.GetCollection<Player>("player").Update(user);
+                            }
+
+
+                            if (String.IsNullOrEmpty(user.ClanId))
+                            {
+                                Send(user.TelegramId, "You aren't in a clan!");
+                                return;
+                            }
+
+                            clans = DB.GetCollection<ClanResponse>("clans");
+                            c = clans.FindOne(x => x.tag == user.ClanId);
+                            if (c == null)
+                            {
+                                Send(user.TelegramId, "I'm not finding a clan for you :(");
+                                return;
+                            }
+                            var wars = DB.GetCollection<WarResponse>("wars").Find(x => x.clan.tag == c.tag && x.state == "warEnded");
+                            if (wars.Count() == 0)
+                            {
+                                Send(user.TelegramId, "I have no wars on record for your clan");
+                                return;
+                            }
+                            using (var sw = new StreamWriter(c.tag + ".csv", false, Encoding.UTF8))
+                            {
+                                //header
+                                sw.WriteLine("Attack Order,Member,Member TH Level,Member Rank,Attacked,Attacked TH Level,Attacked Rank,Stars,Damage");
+                                foreach (var w in wars)
+                                {
+                                    var status = "";
+                                    if (w.clan.stars > w.opponent.stars)
+                                        status = "Win";
+                                    if (w.clan.stars == w.opponent.stars)
+                                    {
+                                        //get average desctruction
+                                        var us = w.clan.members.Sum(x => x.attacks?.Sum(a => a.destructionPercentage)?? 0) / w.clan.attacks;
+                                        var them = w.opponent.members.Sum(x => x.attacks?.Sum(a => a.destructionPercentage) ?? 0) / w.opponent.attacks;
+                                        if (us > them)
+                                            status = "Win";
+                                        if (us == them)
+                                            status = "Draw";
+                                        if (us < them)
+                                            status = "Lose";
+                                    }
+                                    if (w.clan.stars < w.opponent.stars)
+                                        status = "(Lose)";
+                                    sw.WriteLine($"VS {w.opponent.name} - {status} {w.clan.stars} to {w.opponent.stars}");
+                                    sw.WriteLine($"{w.clan.name} Attacks");
+                                    //start with our clan
+
+                                    foreach (var m in w.clan.members.OrderBy(x => x.mapPosition))
+                                    {
+                                        if (m.attacks == null)
+                                        {
+                                            sw.WriteLine($"-,{m.name},{m.townhallLevel},{m.mapPosition},-,-,-,0,0");
+                                            sw.WriteLine($"-,{m.name},{m.townhallLevel},{m.mapPosition},-,-,-,0,0");
+                                        }
+                                        else if (m.attacks.Length == 1)
+                                        {
+                                            var a = m.attacks[0];
+                                            var d = w.opponent.members.FirstOrDefault(x => x.tag == a.defenderTag);
+                                            sw.WriteLine($"{a.order},{m.name},{m.townhallLevel},{m.mapPosition},{d.name},{d.townhallLevel},{d.mapPosition},{a.stars},{a.destructionPercentage}");
+                                            sw.WriteLine($"-,{m.name},{m.townhallLevel},{m.mapPosition},-,-,-,0,0");
+                                        }
+                                        else
+                                        {
+                                            foreach (var a in m.attacks)
+                                            {
+                                                var d = w.opponent.members.FirstOrDefault(x => x.tag == a.defenderTag);
+                                                sw.WriteLine($"{a.order},{m.name},{m.townhallLevel},{m.mapPosition},{d.name},{d.townhallLevel},{d.mapPosition},{a.stars},{a.destructionPercentage}");
+                                            }
+                                        }
+                                    }
+                                    sw.WriteLine($"\n{w.opponent.name} Attacks");
+                                    foreach (var m in w.opponent.members.OrderBy(x => x.mapPosition))
+                                    {
+                                        if (m.attacks == null)
+                                        {
+                                            sw.WriteLine($"-,{m.name},{m.townhallLevel},{m.mapPosition},-,-,-,0,0");
+                                            sw.WriteLine($"-,{m.name},{m.townhallLevel},{m.mapPosition},-,-,-,0,0");
+                                        }
+                                        else if (m.attacks.Length == 1)
+                                        {
+                                            var a = m.attacks[0];
+                                            var d = w.clan.members.FirstOrDefault(x => x.tag == a.defenderTag);
+                                            sw.WriteLine($"{a.order},{m.name},{m.townhallLevel},{m.mapPosition},{d.name},{d.townhallLevel},{d.mapPosition},{a.stars},{a.destructionPercentage}");
+                                            sw.WriteLine($"-,{m.name},{m.townhallLevel},{m.mapPosition},-,-,-,0,0");
+                                        }
+                                        else
+                                        {
+                                            foreach (var a in m.attacks)
+                                            {
+                                                var d = w.clan.members.FirstOrDefault(x => x.tag == a.defenderTag);
+                                                sw.WriteLine($"{a.order},{m.name},{m.townhallLevel},{m.mapPosition},{d.name},{d.townhallLevel},{d.mapPosition},{a.stars},{a.destructionPercentage}");
+                                            }
+                                        }
+                                    }
+
+                                    sw.WriteLine("\n\n");
+                                }
+                                sw.Flush();
+                            }
+                            //now send the file
+                            var fs = new FileStream(c.tag + ".csv", System.IO.FileMode.OpenOrCreate);
+                            Bot.SendDocumentAsync(user.TelegramId, new FileToSend($"{c.tag}.csv", fs), $"War Log for {c.name}: {wars.Count()} wars");
 
                             break;
                         case "test":
                             //clean up wars
-                            
+                            var ccoll = DB.GetCollection<ClanResponse>("clans");
+                            var tclans = ccoll.FindAll();
+                            foreach (var cl in tclans)
+                            {
+                                cl.HasError = false;
+                                cl.error = null;
+                                cl.reason = null;
+                                ccoll.Upsert(cl);
+                            }
 
                             //var wars = DB.GetCollection<WarResponse>("wars");
 
@@ -527,7 +667,7 @@ namespace CoCManagerBot
                 }
                 catch (Exception ex)
                 {
-                    Send(e.Message.From.Id, ex.Message);
+                    Send(e.Message.From.Id, $"{ex.Message}\n{ex.StackTrace}");
                 }
 
             }).Start();
@@ -605,17 +745,18 @@ namespace CoCManagerBot
 
                 var avgScore = scores.Average();
                 var user = DB.GetCollection<Player>("player").FindOne(x => x.CoCId == m.tag);
-                var name = $"<code>{m.role}</code> <b>{m.name}</b>";
+                var name = $"<b>{m.name}</b>";
                 if (user != null)
                 {
                     var urlName = $"<a href=\"tg://user?id={user.TelegramId}\">{m.name}</a>";
-                    name = $"<code>{m.role}</code> {urlName}";
+                    name = $"{urlName}";
                 }
                 var thisPlayer = new WarRank
                 {
                     Id = user?.TelegramId ?? 0,
                     Name = name,
-                    Rank = avgScore
+                    Rank = avgScore,
+                    WarCount = mw.Count()
                 };
                 result.Add(thisPlayer);
 
