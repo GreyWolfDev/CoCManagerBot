@@ -11,7 +11,16 @@ namespace CoCManagerBot.Helpers
     {
         internal static DateTime GetTime(string input)
         {
-            var time = DateTime.ParseExact(input, "yyyyMMddTHHmmss:fffZ", CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
+            //"20180423T060419.000Z"
+            var format = "";
+
+            if (input.Contains("."))
+                format = "yyyyMMddTHHmmss.fffZ";
+            else if (input.Contains(":"))
+                format = "yyyyMMddTHHmmss:fffZ";
+            else
+                Console.WriteLine(input);
+            var time = DateTime.ParseExact(input, format, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
             return TimeZoneInfo.ConvertTime(time, TimeZoneInfo.Utc, TimeZoneInfo.Local);
         }
     }
