@@ -745,10 +745,10 @@ namespace CoCManagerBot
 
                 var avgScore = scores.Average();
                 var user = DB.GetCollection<Player>("player").FindOne(x => x.CoCId == m.tag);
-                var name = $"<b>{m.name}</b>";
+                var name = $"<b>{m.name.FormatHTML()}</b>";
                 if (user != null)
                 {
-                    var urlName = $"<a href=\"tg://user?id={user.TelegramId}\">{m.name}</a>";
+                    var urlName = $"<a href=\"tg://user?id={user.TelegramId}\">{m.name.FormatHTML()}</a>";
                     name = $"{urlName}";
                 }
                 var thisPlayer = new WarRank
