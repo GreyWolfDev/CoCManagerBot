@@ -11,31 +11,83 @@ using System.Threading.Tasks;
 using CoCManagerBot.Helpers;
 using CoCManagerBot.Model;
 using LiteDB;
-using Telegram.Bot;
-using Telegram.Bot.Types;
-using Telegram.Bot.Types.Enums;
-using Telegram.Bot.Types.ReplyMarkups;
+using Telegram.BotAPI.AvailableMethods;
+using Telegram.BotAPI;
+using Telegram.BotAPI.GettingUpdates;
 using System.IO;
+using System.Net;
+using Telegram.BotAPI.AvailableTypes;
+using Telegram.BotAPI.AvailableMethods.FormattingOptions;
 
 namespace CoCManagerBot
 {
     class Program
     {
         internal static string TGToken = RegHelper.GetRegValue("TelegramBotToken");
-        internal static TelegramBotClient Bot;
+        internal static string DiscordToken = RegHelper.GetRegValue("DiscordBotToken");
+        internal static BotClient Bot;
         internal static LiteDatabase DB;
         internal static User Me;
+        
         static void Main(string[] args)
         {
-            DB = new LiteDatabase(@"coc.db");
-            Bot = new TelegramBotClient(TGToken);
-            Bot.OnInlineQuery += Bot_OnInlineQuery;
-            Bot.OnMessage += Bot_OnMessage;
-            Bot.OnCallbackQuery += Bot_OnCallbackQuery;
-            new Task(Monitor).Start();
-            Bot.StartReceiving();
-            Me = Bot.GetMeAsync().Result;
+            System.Net.ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
+            DB = new LiteDatabase(@"coc.2.db");
+            //temporary code for db conversion
+            #region conversion
+            //var oldDb = new LiteDatabase("coc.db");
+            //LiteCollection<ClanResponse> clans = DB.GetCollection<ClanResponse>("clans");
+            //LiteCollection<Player> users = DB.GetCollection<Player>("player");
+            //LiteCollection<WarResponse> wars = DB.GetCollection<WarResponse>("wars");
+            //foreach (var p in oldDb.GetCollection<OldPlayer>("player").FindAll())
+            //{
+            //    var tempP = new Player { ClanId = p.ClanId, CoCId = p.CoCId, id = p.id, LastNotification = p.LastNotification, TelegramId = p.TelegramId };
+            //    users.EnsureIndex(x => x.TelegramId, true);
+            //    users.Upsert(tempP);
+            //}
+            //foreach (var c in oldDb.GetCollection<ClanResponse>("clans").FindAll())
+            //{
+            //    clans.EnsureIndex(x => x.tag);
+            //    clans.Upsert(c);
+            //}
+            //foreach (var w in oldDb.GetCollection<WarResponse>("wars").FindAll())
+            //{
+            //    wars.Upsert(w);
 
+            //}
+            #endregion
+            DiscordBot.Start(DiscordToken);
+            while(DiscordBot._client.ConnectionState != Discord.ConnectionState.Connected)
+            {
+                Thread.Sleep(1000);
+            }
+            Bot = new BotClient(TGToken);
+            //Bot.OnInlineQuery += Bot_OnInlineQuery;
+            //Bot.OnMessage += Bot_OnMessage;
+            //Bot.OnCallbackQuery += Bot_OnCallbackQuery;
+            new Task(Monitor).Start();
+            //Bot.StartReceiving();
+            Me = Bot.GetMeAsync().Result;
+            
+
+            var updates = Bot.GetUpdates();
+            while (true)
+            {
+                if (updates.Any())
+                {
+                    foreach (var update in updates)
+                    {
+                        // Process update
+                        Bot_OnMessage(update);
+                    }
+                    var offset = updates.Last().UpdateId + 1;
+                    updates = Bot.GetUpdates(offset);
+                }
+                else
+                {
+                    updates = Bot.GetUpdates();
+                }
+            }
             //testing stuffs
 
             Thread.Sleep(-1);
@@ -50,9 +102,19 @@ namespace CoCManagerBot
             {
                 var clans = DB.GetCollection<ClanResponse>("clans");
                 var users = DB.GetCollection<Player>("player");
+                var servers = DB.GetCollection<DiscordServer>("guilds");
                 //foreach (var u in users.FindAll())
                 //{
-                //    Send(u.TelegramId, "Hey all, this is @TheRealPara - I've been really busy with work lately, so this bot kind of got pushed aside for a little bit, but I'm working on it again.  If you have requests or anything, feel free to join this group: @cocbotdev");
+                //    try
+                //    {
+                //        Console.Write($"Sending message to {u.TelegramId}: ");
+                //        var result = await Send(u.TelegramId, "Hey all, this is Para - I've decided to revive this project, and am working on some bugs and new features.  Also, it looks like I may be extending this bot to Discord as well.\n\nIf you have requests or anything, feel free to join this group: @cocbotdev", log: false);
+                //        Console.WriteLine("Success");
+                //    }
+                //    catch
+                //    {
+                //        Console.WriteLine("Failed");
+                //    }
                 //    Thread.Sleep(500);
                 //}
                 Console.ForegroundColor = ConsoleColor.Cyan;
@@ -69,6 +131,11 @@ namespace CoCManagerBot
                         try
                         {
                             if (c.HasError) continue;
+                            var s = servers.FindOne(x => x.ClanTag == c.tag);
+                            //if (s != null)
+                            //{
+                            //    DiscordBot._client.GetGuild((ulong)s.ServerId).GetTextChannel((ulong)s.PrimaryChannelId).SendMessageAsync("Online");
+                            //}
                             //check for war
                             var war = await ApiService.Get<WarResponse>(UrlConstants.GetCurrentWarInformationTemplate,
                                 c.tag);
@@ -78,6 +145,11 @@ namespace CoCManagerBot
                                 clans.Update(c);
                                 if (war.reason.Contains("accessDenied"))
                                 {
+
+                                    if (s != null)
+                                    {
+                                        DiscordBot._client.GetGuild((ulong)s.ServerId).GetTextChannel((ulong)s.PrimaryChannelId).SendMessageAsync("It appears your clan has its war log settings to private.  Ask the leader or co leader to set it to public if you'd like to use this bot.\n\nYou can use the !register command once they have to check your clan settings again and get it monitoring.");
+                                    }
                                     //find the players of the clan
                                     foreach (var usr in users.Find(x => x.ClanId == c.tag))
                                     {
@@ -104,7 +176,11 @@ namespace CoCManagerBot
                                     DB.GetCollection<WarResponse>("wars").Insert(war);
                                     //TODO send report to leaders
                                     var report = Admin.GetWarReport(war, clan);
-                                    foreach (var l in c.memberList.Where(x => x.role != "member"))
+                                    if (s != null)
+                                    {
+                                        DiscordBot._client.GetGuild((ulong)s.ServerId).GetTextChannel((ulong)s.PrimaryChannelId).SendMessageAsync(report);
+                                    }
+                                    foreach (var l in c.memberList.Where(x => x.role != "member" || x.name == "Para"))
                                     {
                                         //check if they are a user
                                         var u = users.FindOne(x => x.CoCId == l.tag);
@@ -128,6 +204,10 @@ namespace CoCManagerBot
                                     if (!String.IsNullOrEmpty(c.WarRules))
                                     {
                                         msg += $"\n{c.WarRules}";
+                                    }
+                                    if (s != null)
+                                    {
+                                        DiscordBot._client.GetGuild((ulong)s.ServerId).GetTextChannel((ulong)s.PrimaryChannelId).SendMessageAsync(msg);
                                     }
                                     //notify all members war has started
                                     foreach (var m in war.clan.members)
@@ -165,24 +245,32 @@ namespace CoCManagerBot
                             }
                             if (war.state == "preparation") //prep day
                             {
+
                                 if (!c.MembersNotifiedOfWarPrep)
                                 {
+                                    
                                     c.WarFinalized = false;
                                     c.MembersNotifiedOfWarPrep = true;
                                     clans.Update(c);
-
+                                    var discordMsg = $"War has been declared against {war.opponent.name}!\n";
                                     var msg = $"War has been declared against {war.opponent.name}! You are in this war\n";
                                     var log = ApiService.Get<WarLogResponse>(UrlConstants.GetWarLogInformationTemplate,
                                         war.opponent.tag).Result;
                                     if (log.reason != "accessDenied")
                                     {
+                                        discordMsg += $"Of the last {log.items.Length} wars, the opponent has won {log.items.Count(x => x.result == "win")} war(s)\n";
                                         msg +=
                                             $"Of the last {log.items.Length} wars, the opponent has won {log.items.Count(x => x.result == "win")} war(s)\n";
                                     }
 
                                     if (!String.IsNullOrEmpty(c.WarRules))
                                     {
+                                        discordMsg += $"\n{c.WarRules}\n";
                                         msg += $"\n{c.WarRules}\n";
+                                    }
+                                    if (s != null)
+                                    {
+                                        DiscordBot._client.GetGuild((ulong)s.ServerId).GetTextChannel((ulong)s.PrimaryChannelId).SendMessageAsync(discordMsg);
                                     }
                                     //notify all members war has started
                                     foreach (var m in war.clan.members)
@@ -195,9 +283,13 @@ namespace CoCManagerBot
                                     }
                                 }
                                 var time = Converters.GetTime(war.startTime);
-                                var minutes = (time - DateTime.Now).Minutes;
-                                if (minutes < 59 && minutes >= 54)
+                                var minutes = (time - DateTime.Now).TotalMinutes;
+                                if (minutes < 59 && minutes >= 50)
                                 {
+                                    if (s != null)
+                                    {
+                                        DiscordBot._client.GetGuild((ulong)s.ServerId).GetTextChannel((ulong)s.PrimaryChannelId).SendMessageAsync($"{minutes} minutes left until war starts.  Please make sure clan castles are filled.");
+                                    }
                                     //get the top 3 members in the war
                                     var notify = war.clan.members.OrderBy(x => x.mapPosition).Take(3);
                                     foreach (var n in notify)
@@ -205,6 +297,7 @@ namespace CoCManagerBot
                                         var u = users.FindOne(x => x.CoCId == n.tag);
                                         if (u != null)
                                         {
+
                                             Send(u.TelegramId, $"{minutes} minutes left until war starts.  Please make sure clan castles are filled.");
                                         }
                                     }
@@ -223,9 +316,9 @@ namespace CoCManagerBot
             }
         }
 
-        private static void Bot_OnMessage(object sender, Telegram.Bot.Args.MessageEventArgs e)
+        private static void Bot_OnMessage(Update e)
         {
-
+            if (e.Message == null) return;
             new Task(() =>
             {
                 try
@@ -239,7 +332,7 @@ namespace CoCManagerBot
                     LiteCollection<Player> users = DB.GetCollection<Player>("player");
                     var user = DB.GetCollection<Player>("player").FindOne(x => x.TelegramId == e.Message.From.Id);
                     ClanResponse c;
-                    var command = e.Message?.Text.Trim();
+                    var command = e.Message?.Text?.Trim();
                     if (String.IsNullOrEmpty(command)) return;
 
                     var args = "";
@@ -267,10 +360,10 @@ namespace CoCManagerBot
                                 .Result;
                             if (p.troops == null)
                             {
-                                //invalid id!
-                                Bot.SendPhotoAsync(e.Message.From.Id, new FileToSend("AgADAQADuacxG0fO6Ueo3opj6hFXMjIoAzAABF4YD9Tyw4lhmnoAAgI"),
-                                    "Id not found, please check it in Clash of Clans.  Use this image as an example.  You are looking for the part marked out, in this one it starts with #2",
+                                Bot.SendPhotoAsync(e.Message.From.Id, "AgADAQADuacxG0fO6Ueo3opj6hFXMjIoAzAABF4YD9Tyw4lhmnoAAgI", "Id not found, please check it in Clash of Clans.  Use this image as an example.  You are looking for the part marked out, in this one it starts with #2",
                                     replyToMessageId: e.Message.MessageId);
+                                //invalid id!
+
                                 return;
                             }
                             //get the player from the database (if they exist)
@@ -355,6 +448,48 @@ namespace CoCManagerBot
                                 }
                             }
                             break;
+                        case "warflag":
+                            //check for last war
+                            if (user == null)
+                            {
+                                Send(e.Message.From.Id,
+                                    "Please use /setid to set your user id.  Use the #AAAAAAAAA tag from Clash of Clans.");
+                                return;
+                            }
+                            //update the user information, in case they switch clans or whatever.
+                            p = ApiService.Get<PlayerResponse>(UrlConstants.GetPlayerInformationTemplate, user.CoCId)
+                                .Result;
+                            if (p.clan.tag != user.ClanId)
+                            {
+                                user.ClanId = p.clan.tag;
+                                DB.GetCollection<Player>("player").Update(user);
+                            }
+
+
+                            if (String.IsNullOrEmpty(user.ClanId))
+                            {
+                                Send(user.TelegramId, "You aren't in a clan!");
+                                return;
+                            }
+
+                            clans = DB.GetCollection<ClanResponse>("clans");
+                            c = clans.FindOne(x => x.tag == user.ClanId);
+                            if (c == null)
+                            {
+                                Send(user.TelegramId, "I'm not finding a clan for you :(");
+                                return;
+                            }
+                            var wars = DB.GetCollection<WarResponse>("wars").Find(x => x.clan.tag == c.tag && x.state == "warEnded");
+                            if (wars.Count() == 0)
+                            {
+                                Send(user.TelegramId, "I have no wars on record for your clan");
+                                return;
+                            }
+                            //get most recent war
+                            var war = wars.OrderByDescending(x => x.endTime).First();
+                            var report = Admin.GetWarReport(war, c);
+                            Send(user.TelegramId, report);
+                            break;
                         case "statusreport!":
                             var allUsers = users.FindAll().ToList();
                             var byClan = allUsers.GroupBy(x => x.ClanId);
@@ -366,7 +501,7 @@ namespace CoCManagerBot
                             Send(e.Message.From.Id, reply);
                             break;
                             
-                        case ("war"):
+                        case "war":
                             //get war report!
                             //first find the user
 
@@ -398,7 +533,7 @@ namespace CoCManagerBot
                             c = clans.FindOne(x => x.tag == user.ClanId);
 
                             //ok, we have everything we need...  let's build our war report
-                            var war = ApiService.Get<WarResponse>(UrlConstants.GetCurrentWarInformationTemplate,
+                            war = ApiService.Get<WarResponse>(UrlConstants.GetCurrentWarInformationTemplate,
                                 user.ClanId).Result;
                             if (war.reason != null)
                             {
@@ -453,7 +588,8 @@ namespace CoCManagerBot
                                 Send(e.Message.Chat.Id, response);
                                 break;
                             }
-
+                            //update war in db
+                            DB.GetCollection<WarResponse>("wars").Upsert(war);
                             response += $"Stage: {state}" +
                                            $"\n{war.teamSize} v {war.teamSize}" +
                                            $"\n----------------------------------" +
@@ -516,7 +652,7 @@ namespace CoCManagerBot
                             }
                             else
                             {
-                                Send(e.Message.From.Id, players.Aggregate("", (a, v) => a + "\n" + $"{v.Name}: {v.Rank:N2} ({v.WarCount} wars)"), ParseMode.Html);
+                                Send(e.Message.From.Id, players.Aggregate("", (a, v) => a + "\n" + $"{v.Name}: {v.Rank:N2} ({v.WarCount} wars)"), ParseMode.HTML);
                             }
 
                             break;
@@ -550,7 +686,7 @@ namespace CoCManagerBot
                                 Send(user.TelegramId, "I'm not finding a clan for you :(");
                                 return;
                             }
-                            var wars = DB.GetCollection<WarResponse>("wars").Find(x => x.clan.tag == c.tag && x.state == "warEnded");
+                            wars = DB.GetCollection<WarResponse>("wars").Find(x => x.clan.tag == c.tag && x.state == "warEnded");
                             if (wars.Count() == 0)
                             {
                                 Send(user.TelegramId, "I have no wars on record for your clan");
@@ -637,7 +773,9 @@ namespace CoCManagerBot
                             }
                             //now send the file
                             var fs = new FileStream(c.tag + ".csv", System.IO.FileMode.OpenOrCreate);
-                            Bot.SendDocumentAsync(user.TelegramId, new FileToSend($"{c.tag}.csv", fs), $"War Log for {c.name}: {wars.Count()} wars");
+                            var bytes = new byte[fs.Length];
+                            fs.Read(bytes, 0, (int)fs.Length);
+                            Bot.SendDocumentAsync(user.TelegramId, new InputFile(bytes, $"{c.tag}.csv"), null, $"War Log for {c.name}: {wars.Count()} wars");
 
                             break;
                         case "test":
@@ -798,33 +936,37 @@ namespace CoCManagerBot
             return result;
         }
 
-        private static void Bot_OnInlineQuery(object sender, Telegram.Bot.Args.InlineQueryEventArgs e)
-        {
-            new Task(() =>
-            {
+        //private static void Bot_OnInlineQuery(object sender, Telegram.Bot.Args.InlineQueryEventArgs e)
+        //{
+        //    new Task(() =>
+        //    {
 
-            }).Start();
-        }
+        //    }).Start();
+        //}
 
-        private static void Bot_OnCallbackQuery(object sender, Telegram.Bot.Args.CallbackQueryEventArgs e)
-        {
-            new Task(() =>
-            {
+        //private static void Bot_OnCallbackQuery(object sender, Telegram.Bot.Args.CallbackQueryEventArgs e)
+        //{
+        //    new Task(() =>
+        //    {
 
-            }).Start();
-        }
+        //    }).Start();
+        //}
 
-        private static void Send(long id, string msg, ParseMode parseMode = ParseMode.Default,
+        private static async Task<Message> Send(long id, string msg, string parseMode = null,
             bool disableWebPagePreview = false,
             bool disableNotification = false,
             int replyToMessageId = 0,
-            IReplyMarkup replyMarkup = null)
+            //IReplyMarkup replyMarkup = null,
+            bool log = true)
         {
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine($"Replying: {msg}");
-            Console.ForegroundColor = ConsoleColor.Gray;
-            Bot.SendTextMessageAsync(id, msg, parseMode, disableWebPagePreview, disableNotification, replyToMessageId,
-                replyMarkup);
+            if (log)
+            {
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine($"Replying: {msg}");
+                Console.ForegroundColor = ConsoleColor.Gray;
+            }
+            var result = await Bot.SendMessageAsync(id, msg, parseMode, null, disableWebPagePreview, disableNotification, null, replyToMessageId);
+            return result;
         }
     }
 }

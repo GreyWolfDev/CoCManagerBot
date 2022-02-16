@@ -6,24 +6,12 @@ using System.Threading.Tasks;
 
 namespace CoCManagerBot.Model
 {
-    class Player
+    class OldPlayer
     {
         public int id { get; set; }
-        public long TelegramId { get; set; }
+        public int TelegramId { get; set; }
         public string CoCId { get; set; }
         public string ClanId { get; set; }
         public LastNotification LastNotification { get; set; } = LastNotification.None;
-    }
-
-    public enum LastNotification
-    {
-        None,
-        WarPrep,
-        WarStart,
-        SixHours,
-        ThreeHours,
-        OneHour,
-        HalfHour,
-        WarEnd
     }
 }

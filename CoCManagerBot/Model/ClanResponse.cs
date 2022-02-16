@@ -36,6 +36,7 @@ namespace CoCManagerBot.Model
         public string WarRules { get; set; }
         public string error { get; set; }
         public bool HasError { get; set; }
+        public int DiscordServerId { get; set; }
     }
 
     public class Location

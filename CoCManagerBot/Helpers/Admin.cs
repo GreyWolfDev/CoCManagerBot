@@ -11,25 +11,30 @@ namespace CoCManagerBot.Helpers
     {
         public static string GetWarReport(WarResponse war, ClanResponse c)
         {
-            var result = "War Report:";
+            var result = $"War Report for {c.name} vs {war.opponent.name}:\n";
             
             if (war.clan.stars > war.opponent.stars)
-                result += " (Win)";
+                result += "(Win)";
+            var damage = "";
             if (war.clan.stars == war.opponent.stars)
             {
                 //get average desctruction
-                var us = war.clan.members.Sum(x => x.attacks.Sum(a => a.destructionPercentage)) / war.clan.attacks;
-                var them = war.opponent.members.Sum(x => x.attacks.Sum(a => a.destructionPercentage)) / war.opponent.attacks;
+                var us = war.clan.members.Where(x => x.attacks != null).Sum(x => x.attacks.Sum(a => a.destructionPercentage)) / war.clan.attacks;
+                var them = war.opponent.members.Where(x => x.attacks != null).Sum(x => x.attacks.Sum(a => a.destructionPercentage)) / war.opponent.attacks;
                 if (us > them)
-                    result += " (Win)";
+                    result += "(Win)";
                 if (us == them)
-                    result += " (Draw)";
+                    result += "(Draw)";
                 if (us < them)
-                    result += " (Lose)";
+                    result += "(Lose)";
+                damage = $"{us:00.00}% vs {them:00.00}%";
             }
             if (war.clan.stars < war.opponent.stars)
-                result += " (Lose)";
-            result += $" {war.clan.stars} to {war.opponent.stars}\n\nFlagged Members:\n\n";
+                result += "(Lose)";
+            result += $" {war.clan.stars} to {war.opponent.stars}";
+            if (war.clan.stars == war.opponent.stars)
+                result += $"\nAverage Damage: {damage}";
+            result += "\n\nNotes:\n\n";
             foreach (var m in war.clan.members)
             {
                 var attacks = m.attacks?.Length ?? 0;

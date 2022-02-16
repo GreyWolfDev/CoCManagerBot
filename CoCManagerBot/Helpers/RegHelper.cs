@@ -9,7 +9,7 @@ namespace CoCManagerBot.Helpers
 {
     public static class RegHelper
     {
-        private static RegistryKey _key = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64).OpenSubKey("SOFTWARE\\Grey Wolf Development\\CoCManagerBot");
+        private static RegistryKey _key = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64).OpenSubKey("SOFTWARE\\GreyWolfDev\\CoCManagerBot");
         public static string GetRegValue(string key)
         {
             return _key.GetValue(key, "").ToString();
