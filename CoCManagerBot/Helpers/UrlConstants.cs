@@ -32,5 +32,11 @@ namespace CoCManagerBot.Helpers
         /// Gets player information
         /// </summary>
         public const string GetPlayerInformationTemplate = @"https://api.clashofclans.com/v1/players/{0}";
+        /// <summary>
+        /// Gets CWL info - Teams and War Tags
+        /// Needs clan tag passed
+        /// </summary>
+        public const string GetCWLInfo = @"https://api.clashofclans.com/v1/clans/{0}/currentwar/leaguegroup";
+
     }
 }

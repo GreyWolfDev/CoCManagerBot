@@ -18,6 +18,7 @@ using System.IO;
 using System.Net;
 using Telegram.BotAPI.AvailableTypes;
 using Telegram.BotAPI.AvailableMethods.FormattingOptions;
+using log4net;
 
 namespace CoCManagerBot
 {
@@ -28,7 +29,8 @@ namespace CoCManagerBot
         internal static BotClient Bot;
         internal static LiteDatabase DB;
         internal static User Me;
-        
+        private static readonly log4net.ILog log = log4net.LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
+
         static void Main(string[] args)
         {
             System.Net.ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
@@ -56,8 +58,8 @@ namespace CoCManagerBot
 
             //}
             #endregion
-            DiscordBot.Start(DiscordToken);
-            while(DiscordBot._client.ConnectionState != Discord.ConnectionState.Connected)
+            DiscordBot.Start(DiscordToken, log);
+            while (DiscordBot._client.ConnectionState != Discord.ConnectionState.Connected)
             {
                 Thread.Sleep(1000);
             }
@@ -68,7 +70,7 @@ namespace CoCManagerBot
             new Task(Monitor).Start();
             //Bot.StartReceiving();
             Me = Bot.GetMeAsync().Result;
-            
+
 
             var updates = Bot.GetUpdates();
             while (true)
@@ -118,7 +120,8 @@ namespace CoCManagerBot
                 //    Thread.Sleep(500);
                 //}
                 Console.ForegroundColor = ConsoleColor.Cyan;
-                Console.WriteLine($"Running checks, {clans.Count()} clans, {users.Count()} users");
+                log.Info($"Running checks, {clans.Count()} clans, {users.Count()} users, {servers.Count()} guilds");
+                //Console.WriteLine($"Running checks, {clans.Count()} clans, {users.Count()} users");
                 Console.ForegroundColor = ConsoleColor.Gray;
                 if (clans.Count() > 0)
                 {
@@ -131,7 +134,11 @@ namespace CoCManagerBot
                         try
                         {
                             if (c.HasError) continue;
+                            //TODO update this to find latest server
                             var s = servers.FindOne(x => x.ClanTag == c.tag);
+                            ulong announce = 0;
+                            if (s != null)
+                                announce = (ulong)(s.AnnouncementChannelId ?? s.PrimaryChannelId);
                             //if (s != null)
                             //{
                             //    DiscordBot._client.GetGuild((ulong)s.ServerId).GetTextChannel((ulong)s.PrimaryChannelId).SendMessageAsync("Online");
@@ -148,13 +155,30 @@ namespace CoCManagerBot
 
                                     if (s != null)
                                     {
-                                        DiscordBot._client.GetGuild((ulong)s.ServerId).GetTextChannel((ulong)s.PrimaryChannelId).SendMessageAsync("It appears your clan has its war log settings to private.  Ask the leader or co leader to set it to public if you'd like to use this bot.\n\nYou can use the !register command once they have to check your clan settings again and get it monitoring.");
+
+                                        SendDiscord(s, s.PrimaryChannelId, "It appears your clan has its war log settings to private.  Ask the leader or co leader to set it to public if you'd like to use this bot.\n\nYou can use the !register command once they have to check your clan settings again and get it monitoring.");
+
                                     }
                                     //find the players of the clan
                                     foreach (var usr in users.Find(x => x.ClanId == c.tag))
                                     {
                                         Send(usr.TelegramId, "It appears your clan has its war log settings to private.  Ask the leader or co leader to set it to public if you'd like to use this bot.\n\nYou can use the /recheck command once they have to check your clan settings again and get it monitoring.");
                                     }
+                                }
+                                else
+                                {
+                                    if (s != null)
+                                    {
+
+                                        SendDiscord(s, s.PrimaryChannelId, $"Error monitoring your clan: {war.reason}.  If able, fix the issue.  You can use !recheck to try again.  Monitoring is now disabled until a successful !recheck happens.");
+
+                                    }
+                                    //find the players of the clan
+                                    foreach (var usr in users.Find(x => x.ClanId == c.tag))
+                                    {
+                                        Send(usr.TelegramId, $"Error monitoring your clan: {war.reason}.  If able, fix the issue.  You can use !recheck to try again.  Monitoring is now disabled until a successful !recheck happens.");
+                                    }
+
                                 }
                             }
                             if (war?.state == null) continue;
@@ -173,12 +197,13 @@ namespace CoCManagerBot
                                     clan.id = c.id;
                                     clans.Update(clan);
                                     //log the war
-                                    DB.GetCollection<WarResponse>("wars").Insert(war);
+                                    war.Upsert();
+                                    //DB.GetCollection<WarResponse>("wars").Insert(war);
                                     //TODO send report to leaders
                                     var report = Admin.GetWarReport(war, clan);
                                     if (s != null)
                                     {
-                                        DiscordBot._client.GetGuild((ulong)s.ServerId).GetTextChannel((ulong)s.PrimaryChannelId).SendMessageAsync(report);
+                                        SendDiscord(s, s.PrimaryChannelId, report);
                                     }
                                     foreach (var l in c.memberList.Where(x => x.role != "member" || x.name == "Para"))
                                     {
@@ -207,7 +232,7 @@ namespace CoCManagerBot
                                     }
                                     if (s != null)
                                     {
-                                        DiscordBot._client.GetGuild((ulong)s.ServerId).GetTextChannel((ulong)s.PrimaryChannelId).SendMessageAsync(msg);
+                                        SendDiscord(s, (long)announce, msg);
                                     }
                                     //notify all members war has started
                                     foreach (var m in war.clan.members)
@@ -248,7 +273,7 @@ namespace CoCManagerBot
 
                                 if (!c.MembersNotifiedOfWarPrep)
                                 {
-                                    
+
                                     c.WarFinalized = false;
                                     c.MembersNotifiedOfWarPrep = true;
                                     clans.Update(c);
@@ -270,7 +295,7 @@ namespace CoCManagerBot
                                     }
                                     if (s != null)
                                     {
-                                        DiscordBot._client.GetGuild((ulong)s.ServerId).GetTextChannel((ulong)s.PrimaryChannelId).SendMessageAsync(discordMsg);
+                                        SendDiscord(s, (long)announce, discordMsg);
                                     }
                                     //notify all members war has started
                                     foreach (var m in war.clan.members)
@@ -283,12 +308,12 @@ namespace CoCManagerBot
                                     }
                                 }
                                 var time = Converters.GetTime(war.startTime);
-                                var minutes = (time - DateTime.Now).TotalMinutes;
-                                if (minutes < 59 && minutes >= 50)
+                                var minutes = (int)(time - DateTime.Now).TotalMinutes;
+                                if (minutes < 59 && minutes >= 54)
                                 {
                                     if (s != null)
                                     {
-                                        DiscordBot._client.GetGuild((ulong)s.ServerId).GetTextChannel((ulong)s.PrimaryChannelId).SendMessageAsync($"{minutes} minutes left until war starts.  Please make sure clan castles are filled.");
+                                        SendDiscord(s, (long)announce, $"{minutes} minutes left until war starts.  Please make sure clan castles are filled.");
                                     }
                                     //get the top 3 members in the war
                                     var notify = war.clan.members.OrderBy(x => x.mapPosition).Take(3);
@@ -297,7 +322,6 @@ namespace CoCManagerBot
                                         var u = users.FindOne(x => x.CoCId == n.tag);
                                         if (u != null)
                                         {
-
                                             Send(u.TelegramId, $"{minutes} minutes left until war starts.  Please make sure clan castles are filled.");
                                         }
                                     }
@@ -308,7 +332,7 @@ namespace CoCManagerBot
                         }
                         catch (Exception e)
                         {
-                            // ignored for now
+                            log.Error("Error in monitoring", e);
                         }
                     }
                 }
@@ -487,6 +511,7 @@ namespace CoCManagerBot
                             }
                             //get most recent war
                             var war = wars.OrderByDescending(x => x.endTime).First();
+
                             var report = Admin.GetWarReport(war, c);
                             Send(user.TelegramId, report);
                             break;
@@ -500,7 +525,7 @@ namespace CoCManagerBot
 
                             Send(e.Message.From.Id, reply);
                             break;
-                            
+
                         case "war":
                             //get war report!
                             //first find the user
@@ -589,7 +614,8 @@ namespace CoCManagerBot
                                 break;
                             }
                             //update war in db
-                            DB.GetCollection<WarResponse>("wars").Upsert(war);
+                            war.Upsert();
+                            //DB.GetCollection<WarResponse>("wars").Upsert(war);
                             response += $"Stage: {state}" +
                                            $"\n{war.teamSize} v {war.teamSize}" +
                                            $"\n----------------------------------" +
@@ -704,7 +730,7 @@ namespace CoCManagerBot
                                     if (w.clan.stars == w.opponent.stars)
                                     {
                                         //get average desctruction
-                                        var us = w.clan.members.Sum(x => x.attacks?.Sum(a => a.destructionPercentage)?? 0) / w.clan.attacks;
+                                        var us = w.clan.members.Sum(x => x.attacks?.Sum(a => a.destructionPercentage) ?? 0) / w.clan.attacks;
                                         var them = w.opponent.members.Sum(x => x.attacks?.Sum(a => a.destructionPercentage) ?? 0) / w.opponent.attacks;
                                         if (us > them)
                                             status = "Win";
@@ -805,6 +831,7 @@ namespace CoCManagerBot
                 }
                 catch (Exception ex)
                 {
+                    log.Error($"Error replying to Telegram {e.Message}", ex);
                     Send(e.Message.From.Id, $"{ex.Message}\n{ex.StackTrace}");
                 }
 
@@ -813,127 +840,135 @@ namespace CoCManagerBot
 
         private static List<WarRank> CalculateWarRanks(string clanTag)
         {
-            var clan = DB.GetCollection<ClanResponse>("clans").FindOne(x => x.tag == clanTag);
-            if (clan == null) return null;
-            var wars = DB.GetCollection<WarResponse>("wars").Find(x => x.clan.tag == clanTag);
-            if (wars.Count() == 0) return null;
-            var members = ApiService.Get<MemberListResponse>(UrlConstants.ListClanMembersUrlTemplate, clanTag).Result;
-            var blankAttack = new Attack
+            try
             {
-                destructionPercentage = 0,
-                stars = 0
-            };
-            var result = new List<WarRank>();
-            //now we need to somehow join them togather....
-            foreach (var m in members.items)
-            {
-                if (!wars.Any(x => x.clan.members.Any(z => z.tag == m.tag))) continue;
-                //get all wars this member has been in
-                var mw = wars.Where(x => x.clan.members.Any(z => z.tag == m.tag)).ToList();
-                var scores = new List<double>();
-                foreach (var w in mw)
+                var clan = DB.GetCollection<ClanResponse>("clans").FindOne(x => x.tag == clanTag);
+                if (clan == null) return null;
+                var wars = DB.GetCollection<WarResponse>("wars").Find(x => x.clan.tag == clanTag);
+                if (wars.Count() == 0) return null;
+                var members = ApiService.Get<MemberListResponse>(UrlConstants.ListClanMembersUrlTemplate, clanTag).Result;
+                var blankAttack = new Attack
                 {
-                    var them = w.clan.members.FirstOrDefault(x => x.tag == m.tag);
-                    var starsLost = them.bestOpponentAttack?.stars ?? 0;
-                    var totalStars = them.attacks?.Sum(x => x.stars) ?? 0;
-                    var rank = them.mapPosition;
-                    var netStars = totalStars - starsLost;
-                    //who they attacked
-                    double aRav = 35;
-                    if (them.attacks != null)
+                    destructionPercentage = 0,
+                    stars = 0
+                };
+                var result = new List<WarRank>();
+                //now we need to somehow join them togather....
+                foreach (var m in members.items)
+                {
+                    if (!wars.Any(x => x.clan.members.Any(z => z.tag == m.tag))) continue;
+                    //get all wars this member has been in
+                    var mw = wars.Where(x => x.clan.members.Any(z => z.tag == m.tag)).ToList();
+                    var scores = new List<double>();
+                    foreach (var w in mw)
                     {
-                        var a1m = w.opponent.members.FirstOrDefault(x => x.tag == them.attacks[0].defenderTag);
-
-                        Member a2m;
-                        if (them.attacks.Length == 2)
+                        var them = w.clan.members.FirstOrDefault(x => x.tag == m.tag);
+                        var starsLost = them.bestOpponentAttack?.stars ?? 0;
+                        var totalStars = them.attacks?.Sum(x => x.stars) ?? 0;
+                        var rank = them.mapPosition;
+                        var netStars = totalStars - starsLost;
+                        //who they attacked
+                        double aRav = 35;
+                        if (them.attacks != null)
                         {
-                            a2m = w.opponent.members.FirstOrDefault(x => x.tag == them.attacks[1].defenderTag);
-                            aRav = (a1m.mapPosition + a2m.mapPosition) / (double)2;
+                            var a1m = w.opponent.members.FirstOrDefault(x => x.tag == them.attacks[0].defenderTag);
+
+                            Member a2m;
+                            if (them.attacks.Length == 2)
+                            {
+                                a2m = w.opponent.members.FirstOrDefault(x => x.tag == them.attacks[1].defenderTag);
+                                aRav = (a1m.mapPosition + a2m.mapPosition) / (double)2;
+                            }
+                            else
+                                aRav = a1m.mapPosition;
+                            //average rank of those attacks
+
                         }
-                        else
-                            aRav = a1m.mapPosition;
-                        //average rank of those attacks
+                        var defenseMembers = w.opponent.members.Where(x => x.attacks != null && x.attacks.Any(a => a.defenderTag == m.tag)).ToList();
+                        var defenses = defenseMembers.SelectMany(x => x.attacks.Where(a => a.defenderTag == m.tag)).ToList();
+                        var dRav = defenseMembers.Any() ? defenseMembers.Average(x => x.mapPosition) : 1;
+                        if (dRav == 0) dRav = 1;
+                        var numD = defenses.Count();
+                        //var nD = numD - starsLost;
+
+                        //now some fun....
+                        var dPower = (10 * (double)numD) * ((double)1 / (double)5);
+                        var rawPower = 10 * (((((totalStars * ((double)4 / (double)6)) - (starsLost - 3)) + ((15 - aRav) * (1 / 13.5))) + ((15 - dRav) * (0.5 / 14))) + (numD * (0.5 / 5)));
+                        var unStarred = (starsLost > 0) ? rawPower + 10 : rawPower;
+                        var unRaided = (numD == 0) ? rawPower + 10 : rawPower;
+                        var defBonus = (numD > 0 && starsLost > 0) ? rawPower + dPower : rawPower;
+                        var powerFinal = Math.Max(defBonus, Math.Max(unRaided, unStarred));
+                        scores.Add(powerFinal);
+                        //Console.WriteLine(powerFinal);
+
+                        //calculate some things....
 
                     }
-                    var defenseMembers = w.opponent.members.Where(x => x.attacks != null && x.attacks.Any(a => a.defenderTag == m.tag)).ToList();
-                    var defenses = defenseMembers.SelectMany(x => x.attacks.Where(a => a.defenderTag == m.tag)).ToList();
-                    var dRav = defenseMembers.Any() ? defenseMembers.Average(x => x.mapPosition) : 1;
-                    if (dRav == 0) dRav = 1;
-                    var numD = defenses.Count();
-                    //var nD = numD - starsLost;
+                    if (scores.Count() > 1)
+                    {
+                        //drop lowest score, to be nice
+                        scores.Remove(scores.Min());
+                    }
 
-                    //now some fun....
-                    var dPower = (10 * (double)numD) * ((double)1 / (double)5);
-                    var rawPower = 10 * (((((totalStars * ((double)4 / (double)6)) - (starsLost - 3)) + ((15 - aRav) * (1 / 13.5))) + ((15 - dRav) * (0.5 / 14))) + (numD * (0.5 / 5)));
-                    var unStarred = (starsLost > 0) ? rawPower + 10 : rawPower;
-                    var unRaided = (numD == 0) ? rawPower + 10 : rawPower;
-                    var defBonus = (numD > 0 && starsLost > 0) ? rawPower + dPower : rawPower;
-                    var powerFinal = Math.Max(defBonus, Math.Max(unRaided, unStarred));
-                    scores.Add(powerFinal);
-                    //Console.WriteLine(powerFinal);
+                    var avgScore = scores.Average();
+                    var user = DB.GetCollection<Player>("player").FindOne(x => x.CoCId == m.tag);
+                    var name = $"<b>{m.name.FormatHTML()}</b>";
+                    if (user != null)
+                    {
+                        var urlName = $"<a href=\"tg://user?id={user.TelegramId}\">{m.name.FormatHTML()}</a>";
+                        name = $"{urlName}";
+                    }
+                    var thisPlayer = new WarRank
+                    {
+                        Id = user?.TelegramId ?? 0,
+                        Name = name,
+                        Rank = avgScore,
+                        WarCount = mw.Count()
+                    };
+                    result.Add(thisPlayer);
 
-                    //calculate some things....
+                    //Console.WriteLine($"{m.name}: {avgScore}");
+
+                    //var memberStats = mw.SelectMany(x => x.clan.members.Where(z => z.tag == m.tag)).ToList();
+                    //var attacks = new List<Attack>();
+
+                    //foreach (var s in memberStats)
+                    //{
+                    //    if (s.attacks == null)
+                    //    {
+                    //        attacks.Add(blankAttack);
+                    //        attacks.Add(blankAttack);
+                    //    }
+                    //    else
+                    //    {
+                    //        foreach (var a in s.attacks)
+                    //        {
+                    //            attacks.Add(a);
+                    //        }
+                    //        if (s.attacks.Count() == 1)
+                    //        {
+                    //            attacks.Add(blankAttack);
+                    //        }
+                    //    }
+                    //}
+                    ////var attacks = memberStats.Where(x => x.attacks != null).SelectMany(x => x.attacks).Where(x => x != null);
+
+                    //var starAvg = attacks.Average(x => x.stars);
+                    //var destAvg = attacks.Average(x => x.destructionPercentage);
+                    //var starsLost = memberStats.Average(x => x.bestOpponentAttack?.stars);
+
+                    //Console.WriteLine($"{m.name} - {mw.Count} Wars with {attacks.Count(x => x.attackerTag != null)} attacks\nAVG Stars: {starAvg:N2} | AVG Destruction: {destAvg:N2} | AVG Stars Lost: {starsLost:N2}\n");
+                    ////calculate a war ranking somehow...
 
                 }
-                if (scores.Count() > 1)
-                {
-                    //drop lowest score, to be nice
-                    scores.Remove(scores.Min());
-                }
 
-                var avgScore = scores.Average();
-                var user = DB.GetCollection<Player>("player").FindOne(x => x.CoCId == m.tag);
-                var name = $"<b>{m.name.FormatHTML()}</b>";
-                if (user != null)
-                {
-                    var urlName = $"<a href=\"tg://user?id={user.TelegramId}\">{m.name.FormatHTML()}</a>";
-                    name = $"{urlName}";
-                }
-                var thisPlayer = new WarRank
-                {
-                    Id = user?.TelegramId ?? 0,
-                    Name = name,
-                    Rank = avgScore,
-                    WarCount = mw.Count()
-                };
-                result.Add(thisPlayer);
-
-                //Console.WriteLine($"{m.name}: {avgScore}");
-
-                //var memberStats = mw.SelectMany(x => x.clan.members.Where(z => z.tag == m.tag)).ToList();
-                //var attacks = new List<Attack>();
-
-                //foreach (var s in memberStats)
-                //{
-                //    if (s.attacks == null)
-                //    {
-                //        attacks.Add(blankAttack);
-                //        attacks.Add(blankAttack);
-                //    }
-                //    else
-                //    {
-                //        foreach (var a in s.attacks)
-                //        {
-                //            attacks.Add(a);
-                //        }
-                //        if (s.attacks.Count() == 1)
-                //        {
-                //            attacks.Add(blankAttack);
-                //        }
-                //    }
-                //}
-                ////var attacks = memberStats.Where(x => x.attacks != null).SelectMany(x => x.attacks).Where(x => x != null);
-
-                //var starAvg = attacks.Average(x => x.stars);
-                //var destAvg = attacks.Average(x => x.destructionPercentage);
-                //var starsLost = memberStats.Average(x => x.bestOpponentAttack?.stars);
-
-                //Console.WriteLine($"{m.name} - {mw.Count} Wars with {attacks.Count(x => x.attackerTag != null)} attacks\nAVG Stars: {starAvg:N2} | AVG Destruction: {destAvg:N2} | AVG Stars Lost: {starsLost:N2}\n");
-                ////calculate a war ranking somehow...
-
+                return result;
             }
-
-            return result;
+            catch (Exception e)
+            {
+                log.Error("Error calculating war ranks", e);
+                return new List<WarRank>();
+            }
         }
 
         //private static void Bot_OnInlineQuery(object sender, Telegram.Bot.Args.InlineQueryEventArgs e)
@@ -952,6 +987,19 @@ namespace CoCManagerBot
         //    }).Start();
         //}
 
+        private static async Task SendDiscord(DiscordServer s, long channelId, string msg)
+        {
+            try
+            {
+                log.Info($"Sending message to server {s.ServerId} ({s.ClanTag}) on channel {channelId}");
+                await DiscordBot._client.GetGuild((ulong)s.ServerId).GetTextChannel((ulong)channelId).SendMessageAsync(msg);
+            }
+            catch (Exception e)
+            {
+                log.Error("Error sending message to discord", e);
+            }
+        }
+
         private static async Task<Message> Send(long id, string msg, string parseMode = null,
             bool disableWebPagePreview = false,
             bool disableNotification = false,
@@ -959,14 +1007,25 @@ namespace CoCManagerBot
             //IReplyMarkup replyMarkup = null,
             bool log = true)
         {
-            if (log)
+            try
             {
-                Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine($"Replying: {msg}");
-                Console.ForegroundColor = ConsoleColor.Gray;
+                if (log)
+                {
+                    Console.ForegroundColor = ConsoleColor.Yellow;
+                    Program.log.Debug($"Replying: {msg}");
+                    //Console.WriteLine($"Replying: {msg}");
+                    Console.ForegroundColor = ConsoleColor.Gray;
+                }
+                var result = await Bot.SendMessageAsync(id, msg, parseMode, null, disableWebPagePreview, disableNotification, null, replyToMessageId);
+                return result;
             }
-            var result = await Bot.SendMessageAsync(id, msg, parseMode, null, disableWebPagePreview, disableNotification, null, replyToMessageId);
-            return result;
+            catch (Exception e)
+            {
+                Program.log.Error("Error sending to Telegram", e);
+            }
+            return null;
         }
+
+
     }
 }

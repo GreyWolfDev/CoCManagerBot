@@ -12,5 +12,6 @@ namespace CoCManagerBot.Model
         public long ServerId { get; set; }
         public long PrimaryChannelId { get; set; }
         public string ClanTag { get; set; }
+        public long? AnnouncementChannelId { get; set; }
     }
 }

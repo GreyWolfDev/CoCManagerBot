@@ -1,4 +1,5 @@
-﻿using System;
+﻿using log4net;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -79,4 +80,6 @@ namespace CoCManagerBot.Model
         public float destructionPercentage { get; set; }
         public int order { get; set; }
     }
+
+
 }

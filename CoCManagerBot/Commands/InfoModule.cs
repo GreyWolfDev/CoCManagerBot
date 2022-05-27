@@ -39,6 +39,7 @@ namespace CoCManagerBot.Commands
                 ReplyAsync(clan.reason);
                 return Task.CompletedTask;
             }
+            //TODO: remove old server if exists
 
 
             if (s == null)
@@ -65,6 +66,7 @@ namespace CoCManagerBot.Commands
                 ReplyAsync("Clan already found in database, setting this channel to primary notification channel");
                 c.DiscordServerId = s.id;
                 s.PrimaryChannelId = (long)Context.Channel.Id;
+                s.AnnouncementChannelId = s.PrimaryChannelId;
                 servers.Update(s);
                 c.HasError = false;
                 clans.Update(c);
@@ -74,6 +76,46 @@ namespace CoCManagerBot.Commands
 
 
 
+            return Task.CompletedTask;
+        }
+
+        [Command("recheck")]
+        [Summary("Checks for errors")]
+        public Task RecheckAsync()
+        {
+            var servers = Program.DB.GetCollection<DiscordServer>("guilds");
+            var s = servers.FindOne(x => x.ServerId == (long)Context.Guild.Id);
+            string tag = null;
+            if (s != null)
+            {
+                tag = s.ClanTag;
+            }
+
+            if (String.IsNullOrWhiteSpace(tag))
+            {
+                ReplyAsync("Please send !register with your clan tag, for example: !register #00000000");
+                return Task.CompletedTask;
+            }
+            var clans = Program.DB.GetCollection<ClanResponse>("clans");
+            var check = ApiService.Get<WarResponse>(UrlConstants.GetCurrentWarInformationTemplate,
+                                tag).Result;
+            if (check.reason != null)
+            {
+                ReplyAsync($"Still unable to get war log.  Reason: {check.reason}");
+            }
+            else
+            {
+                var c = clans.FindOne(x => x.tag == tag);
+                if (c != null)
+                {
+                    c.HasError = false;
+                    c.MembersNotifiedOfWarPrep = false;
+                    c.MembersNotifiedOfWarStart = false;
+                    c.WarFinalized = false;
+                    clans.Update(c);
+                    ReplyAsync("I was able to pull your war information!  Clan is now being monitored");
+                }
+            }
             return Task.CompletedTask;
         }
 
@@ -99,6 +141,32 @@ namespace CoCManagerBot.Commands
             return SayAsync(tag);
         }
 
+        [Command("announce")]
+        [Summary("Set announcement channel")]
+        public Task AnnounceAsync()
+        {
+            var servers = Program.DB.GetCollection<DiscordServer>("guilds");
+            var s = servers.FindOne(x => x.ServerId == (long)Context.Guild.Id);
+            string tag = null;
+            //check if this server has a clan already associated
+            if (s != null)
+            {
+                tag = s.ClanTag;
+            }
+
+            if (String.IsNullOrWhiteSpace(tag))
+            {
+                ReplyAsync("Please use !register with your clan tag, for example: !register #00000000\n" +
+                    "Do this in the channel you want war reports / etc to show in.  You can use !announce to set a channel to announce when wars are starting.");
+                return Task.CompletedTask;
+            }
+
+            s.AnnouncementChannelId = (long)Context.Channel.Id;
+            servers.Update(s);
+            ReplyAsync("Announcement channel set");
+            return Task.CompletedTask;
+        }
+
         [Command("warflag")]
         [Summary("Check war report")]
         public Task WarFlagAsync()
@@ -117,7 +185,8 @@ namespace CoCManagerBot.Commands
                 ReplyAsync("I'm not finding a clan for you :(");
                 return Task.CompletedTask;
             }
-            var wars = Program.DB.GetCollection<WarResponse>("wars").Find(x => x.clan.tag == c.tag && x.state == "warEnded");
+
+            var wars = Program.DB.GetCollection<WarResponse>("wars").Find(x => x.clan.tag == c.tag && x.state == "warEnded").OrderByDescending(x => x.endTime);
             if (wars.Count() == 0)
             {
                 ReplyAsync("I have no wars on record for your clan");
@@ -204,7 +273,8 @@ namespace CoCManagerBot.Commands
                 return Task.CompletedTask;
             }
             //update war in db
-            Program.DB.GetCollection<WarResponse>("wars").Upsert(war);
+            war.Upsert();
+            //Program.DB.GetCollection<WarResponse>("wars").Upsert(war);
             response += $"Stage: {state}" +
                            $"\n{war.teamSize} v {war.teamSize}" +
                            $"\n----------------------------------" +

@@ -13,6 +13,7 @@ using Discord.Commands;
 using Discord.WebSocket;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using log4net;
 
 namespace CoCManagerBot
 {
@@ -21,8 +22,10 @@ namespace CoCManagerBot
         public static DiscordSocketClient _client;
         private static CommandService _commands;
         private static CommandHandler _handler;
-        public static async Task Start(string token)
+        private static ILog _log;
+        public static async Task Start(string token, ILog log)
         {
+            _log = log;
             _commands = new CommandService(new CommandServiceConfig
             {                                       // Add the command service to the collection
                 LogLevel = LogSeverity.Verbose,     // Tell the logger to give Verbose amount of info
@@ -49,7 +52,24 @@ namespace CoCManagerBot
         }
         private static Task Log(LogMessage msg)
         {
-            Console.WriteLine(msg.ToString());
+            switch (msg.Severity)
+            {
+                case LogSeverity.Critical:
+                case LogSeverity.Error:
+                    _log.Error(msg.Message, msg.Exception);
+                    break;
+                case LogSeverity.Debug:
+                    _log.Debug(msg.Message);
+                    break;
+                case LogSeverity.Verbose:
+                case LogSeverity.Info:
+                    _log.Info(msg.Message);
+                    break;
+                case LogSeverity.Warning:
+                    _log.Warn(msg.Message);
+                    break;
+            }
+            
             return Task.CompletedTask;
         }
     }
