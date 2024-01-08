@@ -1,12 +1,15 @@
 ﻿using CoCManagerBot.Helpers;
 using CoCManagerBot.Model;
+using Discord;
 using Discord.Commands;
+using Discord.Net;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+using System.Windows;
 
 namespace CoCManagerBot.Commands
 {
@@ -99,7 +102,7 @@ namespace CoCManagerBot.Commands
             var clans = Program.DB.GetCollection<ClanResponse>("clans");
             var check = ApiService.Get<WarResponse>(UrlConstants.GetCurrentWarInformationTemplate,
                                 tag).Result;
-            if (check.reason != null)
+            if (check.reason != null && !check.reason.Contains("inMaintenance"))
             {
                 ReplyAsync($"Still unable to get war log.  Reason: {check.reason}");
             }
@@ -227,9 +230,9 @@ namespace CoCManagerBot.Commands
                 if (war.reason.Contains("accessDenied"))
                 {
                     //find the players of the clan
-                    
-                        ReplyAsync("It appears your clan has its war log settings to private.  Ask the leader or co leader to set it to public if you'd like to use this bot.\n\nYou can use the !register command once they have to check your clan settings again and get it monitoring.");
-                    
+
+                    ReplyAsync("It appears your clan has its war log settings to private.  Ask the leader or co leader to set it to public if you'd like to use this bot.\n\nYou can use the !register command once they have to check your clan settings again and get it monitoring.");
+
                 }
             }
             var response = "";
@@ -307,6 +310,207 @@ namespace CoCManagerBot.Commands
 
             ReplyAsync(response);
             return Task.CompletedTask;
+        }
+
+        [Command("cwlnext")]
+        [Summary("Get CWL next war info (peek)")]
+        public async Task CwlNextAsync()
+        {
+            try
+            {
+                var clans = Program.DB.GetCollection<ClanResponse>("clans");
+                var servers = Program.DB.GetCollection<DiscordServer>("guilds");
+                var s = servers.FindOne(x => x.ServerId == (long)Context.Guild.Id);
+                var emotes = Context.Guild.Emotes.ToList();
+                if (s == null || String.IsNullOrEmpty(s.ClanTag))
+                {
+                    await ReplyAsync("I don't have a clan registered with this server.  Please use the !register command in whichever channel you wish to get notifications in");
+
+                }
+
+                var myClan = s.ClanTag;
+                var toSend = "";
+                var buffer = "";
+                var cwl = ApiService.Get<CWLResponse>(UrlConstants.GetCWLInfo, myClan).Result;
+                //sb.AppendLine($"Found CWL: preparation for season {cwl.season}");
+                //now check each day for our clan
+                var clanInfo = new Clan();
+                var myClanInfo = new Clan();
+                var day = 0;
+                foreach (var r in cwl.rounds.Where(x => x.warTags.All(t => t != "#0")))
+                {
+                    day++;
+                    foreach (var w in r.warTags)
+                    {
+                        if (w == "#0") break;
+                        //get this particular war
+                        var war = ApiService.Get<CWLWarResponse>(UrlConstants.GetCWLWarInfo, w).Result;
+                        //no reason to check if war is still active
+                        //check to see if we are in this war
+                        if (war.state != "preparation") break;
+                        if (war.clan.tag == myClan)
+                        {
+                            clanInfo = war.opponent;
+                            myClanInfo = war.clan;
+                        }
+                        if (war.opponent.tag == myClan)
+                        {
+                            clanInfo = war.clan;
+                            myClanInfo = war.opponent;
+                        }
+                    }
+                }
+                var embed = new EmbedBuilder { Title = $"CWL Day {day} vs **{clanInfo.name}**" };
+
+                var c = myClanInfo;
+
+
+                foreach (var m in c.members.OrderBy(x => x.mapPosition))
+                {
+                    var emoji = emotes.FirstOrDefault(x => x.Name == $"th{m.townhallLevel}");
+                    if (emoji != null)
+                    {
+                        buffer += $"<:{emoji.Name}:{emoji.Id}>";
+                    }
+                    buffer += ($"{m.townhallLevel} : {m.name}\n");
+                }
+                if (buffer.Length > 1024)
+                {
+                    //trim out the townhall emojis
+                    buffer = "";
+
+                    foreach (var m in c.members.OrderBy(x => x.mapPosition))
+                    {
+                        //var emoji = emotes.FirstOrDefault(x => x.Name == $"th{m.townhallLevel}");
+                        buffer += $"TH{m.townhallLevel} : {m.name}\n";
+                    }
+                }
+                embed.AddField(c.name, buffer, true).WithCurrentTimestamp();
+
+                c = clanInfo;
+                buffer = "";
+
+                foreach (var m in c.members.OrderBy(x => x.mapPosition))
+                {
+                    var emoji = emotes.FirstOrDefault(x => x.Name == $"th{m.townhallLevel}");
+                    if (emoji != null)
+                    {
+                        buffer += $"<:{emoji.Name}:{emoji.Id}>";
+                    }
+                    buffer += ($"{m.townhallLevel} : {m.name}\n");
+                }
+                if (buffer.Length > 1024)
+                {
+                    //trim out the townhall emojis
+                    buffer = "";
+
+                    foreach (var m in c.members.OrderBy(x => x.mapPosition))
+                    {
+                        //var emoji = emotes.FirstOrDefault(x => x.Name == $"th{m.townhallLevel}");
+                        buffer += $"TH{m.townhallLevel} : {m.name}\n";
+                    }
+                }
+                embed.AddField(c.name, buffer, true).WithCurrentTimestamp();
+
+
+                await ReplyAsync(embed: embed.Build());
+            }
+            catch(Exception ex)
+            {
+                await ReplyAsync(ex.Message);
+            }
+
+        }
+
+        [Command("cwlinfo")]
+        [Summary("Get CWL clan info (peek)")]
+        public async Task CwlInfoAsync()
+        {
+            Console.WriteLine("Getting CWL info");
+            var clans = Program.DB.GetCollection<ClanResponse>("clans");
+            var servers = Program.DB.GetCollection<DiscordServer>("guilds");
+            var s = servers.FindOne(x => x.ServerId == (long)Context.Guild.Id);
+            var emotes = Context.Guild.Emotes.ToList();
+            if (s == null || String.IsNullOrEmpty(s.ClanTag))
+            {
+                await ReplyAsync("I don't have a clan registered with this server.  Please use the !register command in whichever channel you wish to get notifications in");
+
+            }
+            Console.WriteLine(s.ClanTag);
+            var myClan = s.ClanTag;
+            var toSend = "";
+            var buffer = "";
+            var cwl = ApiService.Get<CWLResponse>(UrlConstants.GetCWLInfo, myClan).Result;
+            Console.WriteLine($"CWL Info retrieved, working");
+            //sb.AppendLine($"Found CWL: preparation for season {cwl.season}");
+            //now check each day for our clan
+            var clanInfo = new Clan();
+            var myClanInfo = new Clan();
+            var clanArray = new Clan[8];
+            var i = 0;
+            foreach (var r in cwl.rounds.Where(x => x.warTags.All(t => t != "#0")))
+            {
+                i = 0;
+                foreach (var w in r.warTags)
+                {
+                    if (w == "#0") break;
+                    //get this particular war
+                    var war = ApiService.Get<CWLWarResponse>(UrlConstants.GetCWLWarInfo, w).Result;
+                    //no reason to check if war is still active
+                    //check to see if we are in this war
+                    if (war.state != "preparation") break;
+                    clanArray[i] = war.clan;
+                    i++;
+                    clanArray[i] = war.opponent;
+                    i++;
+
+                }
+            }
+
+            foreach (var c in clanArray)
+            {
+                buffer = ($"**{c.name}**\n");
+                foreach (var m in c.members.OrderBy(x => x.mapPosition))
+                {
+                    var emoji = emotes.FirstOrDefault(x => x.Name == $"th{m.townhallLevel}");
+                    if (emoji != null)
+                    {
+                        buffer += $"<:{emoji.Name}:{emoji.Id}>";
+                    }
+                    buffer += ($"{m.townhallLevel} : {m.name}\n");
+                }
+                buffer += ($"\nTotal TH level for clan: {c.members.Sum(x => x.townhallLevel)}\n");
+                buffer += ("----------------------\n\n");
+                if ((toSend + buffer).Length > 2000)
+                {
+                    //message limit reached
+                    Console.WriteLine($"sending message length {toSend.Length}");
+                    await ReplyAsync("----\n" + toSend);
+                    //await Task.Delay(1000);
+                    toSend = buffer;
+                }
+                else
+                {
+                    toSend += buffer;
+                }
+            }
+            if (toSend.Length > 0)
+            {
+                Console.WriteLine($"sending message length {toSend.Length}");
+                await ReplyAsync("----\n" + toSend);
+                toSend = "";
+            }
+
+            toSend = ("Total / avg townhall levels for this CWL war:\n");
+
+            foreach (var c in clanArray.OrderByDescending(c => c.members.Sum(x => x.townhallLevel)))
+            {
+                toSend += ($"{c.members.Sum(x => x.townhallLevel)} / {c.members.Average(x => x.townhallLevel):00.00} - {c.name}\n");
+            }
+
+            Console.WriteLine($"sending message length {toSend.Length}");
+            await ReplyAsync("----\n" + toSend);
+            //return Task.CompletedTask;
         }
     }
 }

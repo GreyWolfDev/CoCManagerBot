@@ -146,8 +146,9 @@ namespace CoCManagerBot
                             //check for war
                             var war = await ApiService.Get<WarResponse>(UrlConstants.GetCurrentWarInformationTemplate,
                                 c.tag);
-                            if (war.reason != null)
+                            if (war?.reason != null && !(war?.reason??"").Contains("inMaintenance"))
                             {
+                               
                                 c.HasError = true;
                                 clans.Update(c);
                                 if (war.reason.Contains("accessDenied"))
@@ -456,7 +457,7 @@ namespace CoCManagerBot
                             //var check = ApiService.Get<WarResponse>()
                             var check = ApiService.Get<WarResponse>(UrlConstants.GetCurrentWarInformationTemplate,
                                 user.ClanId).Result;
-                            if (check.reason != null)
+                            if (check.reason != null && !check.reason.Contains("inMaintenance"))
                             {
                                 Send(user.TelegramId, $"Still unable to get war log.  Reason: {check.reason}");
                             }
@@ -804,6 +805,43 @@ namespace CoCManagerBot
                             Bot.SendDocumentAsync(user.TelegramId, new InputFile(bytes, $"{c.tag}.csv"), null, $"War Log for {c.name}: {wars.Count()} wars");
 
                             break;
+                        case "cwl":
+                            if (user == null)
+                            {
+                                Send(e.Message.From.Id,
+                                    "Please use /setid to set your user id.  Use the #AAAAAAAAA tag from Clash of Clans.");
+                                return;
+                            }
+                            //update the user information, in case they switch clans or whatever.
+                            p = ApiService.Get<PlayerResponse>(UrlConstants.GetPlayerInformationTemplate, user.CoCId)
+                                .Result;
+                            if (p.clan.tag != user.ClanId)
+                            {
+                                user.ClanId = p.clan.tag;
+                                DB.GetCollection<Player>("player").Update(user);
+                            }
+
+
+                            if (String.IsNullOrEmpty(user.ClanId))
+                            {
+                                Send(user.TelegramId, "You aren't in a clan!");
+                                return;
+                            }
+
+                            clans = DB.GetCollection<ClanResponse>("clans");
+                            c = clans.FindOne(x => x.tag == user.ClanId);
+                            if (c == null)
+                            {
+                                Send(user.TelegramId, "I'm not finding a clan for you :(");
+                                return;
+                            }
+                            report = Admin.GetCWLReport(c.tag);
+
+                            fs = new FileStream(report, System.IO.FileMode.OpenOrCreate);
+                            bytes = new byte[fs.Length];
+                            fs.Read(bytes, 0, (int)fs.Length);
+                            Bot.SendDocumentAsync(user.TelegramId, new InputFile(bytes, report), null, $"CWL Log for {c.name}");
+                            break;
                         case "test":
                             //clean up wars
                             var ccoll = DB.GetCollection<ClanResponse>("clans");
@@ -825,6 +863,9 @@ namespace CoCManagerBot
                             //        wars.Delete(dup.id);
                             //    }
                             //}
+                            break;
+                        case "reset":
+                            //if (e.Message.From.FirstName != "")
                             break;
                     }
 

@@ -5,6 +5,8 @@ VisualStudioVersion = 16.0.32106.194
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CoCManagerBot", "CoCManagerBot\CoCManagerBot.csproj", "{0FA10484-4746-4194-BCB3-28A4C4CDE1BA}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Testing", "Testing\Testing.csproj", "{A34F756D-1098-431F-BCA3-8758257EE153}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -15,6 +17,10 @@ Global
 		{0FA10484-4746-4194-BCB3-28A4C4CDE1BA}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{0FA10484-4746-4194-BCB3-28A4C4CDE1BA}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{0FA10484-4746-4194-BCB3-28A4C4CDE1BA}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A34F756D-1098-431F-BCA3-8758257EE153}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A34F756D-1098-431F-BCA3-8758257EE153}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A34F756D-1098-431F-BCA3-8758257EE153}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A34F756D-1098-431F-BCA3-8758257EE153}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

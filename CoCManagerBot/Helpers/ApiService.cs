@@ -9,7 +9,7 @@ using Newtonsoft.Json;
 
 namespace CoCManagerBot.Helpers
 {
-    internal static class ApiService
+    public static class ApiService
     {
         internal static string CoCToken = RegHelper.GetRegValue("CoCAPIKey");
         public static async Task<string> GetJsonAsync(string url)

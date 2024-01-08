@@ -30,6 +30,6 @@ namespace CoCManagerBot.Model
         public string endTime { get; set; }
         public int teamSize { get; set; }
         public Clan clan { get; set; }
-        public Opponent opponent { get; set; }
+        public Clan opponent { get; set; }
     }
 }

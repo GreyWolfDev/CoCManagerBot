@@ -16,7 +16,7 @@ namespace CoCManagerBot.Model
         public string startTime { get; set; }
         public string endTime { get; set; }
         public Clan clan { get; set; }
-        public Opponent opponent { get; set; }
+        public Clan opponent { get; set; }
         public string reason { get; set; }
     }
 
@@ -33,17 +33,17 @@ namespace CoCManagerBot.Model
         public int expEarned { get; set; }
     }
 
-    public class Opponent
-    {
-        public string tag { get; set; }
-        public string name { get; set; }
-        public Badgeurls badgeUrls { get; set; }
-        public int clanLevel { get; set; }
-        public int attacks { get; set; }
-        public int stars { get; set; }
-        public float destructionPercentage { get; set; }
-        public Member[] members { get; set; }
-    }
+    //public class Opponent
+    //{
+    //    public string tag { get; set; }
+    //    public string name { get; set; }
+    //    public Badgeurls badgeUrls { get; set; }
+    //    public int clanLevel { get; set; }
+    //    public int attacks { get; set; }
+    //    public int stars { get; set; }
+    //    public float destructionPercentage { get; set; }
+    //    public Member[] members { get; set; }
+    //}
 
     public class Badgeurls
     {
